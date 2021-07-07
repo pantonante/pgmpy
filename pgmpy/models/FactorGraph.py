@@ -218,16 +218,18 @@ class FactorGraph(UndirectedGraph):
         variable_nodes = set([x for factor in self.factors for x in factor.scope()])
         factor_nodes = set(self.nodes()) - variable_nodes
 
+        variables_neighbors = [n  for x in variable_nodes for n in self.neighbors(x)]
+
         if not all(
             isinstance(factor_node, DiscreteFactor) for factor_node in factor_nodes
         ):
             raise ValueError("Factors not associated for all the random variables")
 
-        if not (bipartite.is_bipartite(self)) or not (
-            bipartite.is_bipartite_node_set(self, variable_nodes)
-            or bipartite.is_bipartite_node_set(self, variable_nodes)
-        ):
-            raise ValueError("Edges can only be between variables and factors")
+        # if not (bipartite.is_bipartite(self)) or not (
+        #     bipartite.is_bipartite_node_set(self, variable_nodes)
+        #     or bipartite.is_bipartite_node_set(self, variable_nodes)
+        # ):
+        #     raise ValueError("Edges can only be between variables and factors")
 
         if len(factor_nodes) != len(self.factors):
             raise ValueError("Factors not associated with all the factor nodes.")
