@@ -203,39 +203,44 @@ class FactorGraph(UndirectedGraph):
 
     def check_model(self):
         """
-        Check the model for various errors. This method checks for the following
-        errors. In the same time it also updates the cardinalities of all the
-        random variables.
-
-        * Check whether bipartite property of factor graph is still maintained
-          or not.
-        * Check whether factors are associated for all the random variables or not.
-        * Check if factors are defined for each factor node or not.
-        * Check if cardinality information for all the variables is availble or not.
-        * Check if cardinality of random variable remains same across all the
-          factors.
+        Check the model for various errors. In the same time it also updates 
+        the cardinalities of all the random variables.
         """
-        variable_nodes = set([x for factor in self.factors for x in factor.scope()])
-        factor_nodes = set(self.nodes()) - variable_nodes
+        factor_nodes = set(
+            [phi for phi in self.nodes if isinstance(phi, DiscreteFactor)]
+        )
+        variables = set(self.nodes) - factor_nodes
 
-        variables_neighbors = [n  for x in variable_nodes for n in self.neighbors(x)]
-
-        if not all(
-            isinstance(factor_node, DiscreteFactor) for factor_node in factor_nodes
-        ):
-            raise ValueError("Factors not associated for all the random variables")
-
-        # if not (bipartite.is_bipartite(self)) or not (
-        #     bipartite.is_bipartite_node_set(self, variable_nodes)
-        #     or bipartite.is_bipartite_node_set(self, variable_nodes)
-        # ):
-        #     raise ValueError("Edges can only be between variables and factors")
-
+        if not variables:
+            raise ValueError("The factor graph does not contain any variable.")
+        if not self.factors:
+            raise ValueError("The factor graph does not contain any factor.")
         if len(factor_nodes) != len(self.factors):
             raise ValueError("Factors not associated with all the factor nodes.")
 
+        variables_in_factor_scopes = set(
+            [v for phi in self.factors for v in phi.scope()]
+        )
+        nodes = list(self.nodes)
+
+        # Check variables and factor scopes overlap
+        if not variables == variables_in_factor_scopes:
+            raise ValueError("Variables and factor's scopes are not the same set.")
+        # all variables and factors are also nodes
+        if not all(v in nodes for v in variables):
+            raise ValueError("Not all variables are nodes in the graph.")
+        if not all(phi in nodes for phi in self.factors):
+            raise ValueError("Not all factors are nodes in the graph.")
+        # For all edges: e[0] in variables and e[1] in self.factors or vice-versa (i.e. is bipartite)
+        if not all(
+            (e[0] in variables and e[1] in self.factors)
+            or (e[1] in variables and e[0] in self.factors)
+            for e in self.edges
+        ):
+            raise ValueError("The factor graph is not bipartite.")
+
         cardinalities = self.get_cardinality()
-        if len(variable_nodes) != len(cardinalities):
+        if len(variables) != len(cardinalities):
             raise ValueError("Factors for all the variables not defined")
 
         for factor in self.factors:

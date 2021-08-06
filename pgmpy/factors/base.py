@@ -62,10 +62,10 @@ def factor_product(*args):
     if not all(isinstance(phi, BaseFactor) for phi in args):
         raise TypeError("Arguments must be factors")
     # Check if all of the arguments are of the same type
-    elif len(set(map(type, args))) != 1:
-        raise NotImplementedError(
-            "All the args are expected to be instances of the same factor class."
-        )
+    # elif len(set(map(type, args))) != 1:
+    #     raise NotImplementedError(
+    #         "All the args are expected to be instances of the same factor class."
+    #     )
 
     return reduce(lambda phi1, phi2: phi1 * phi2, args)
 
