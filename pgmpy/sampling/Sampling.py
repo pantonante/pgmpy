@@ -509,7 +509,7 @@ class GibbsSampling(MarkovChain):
             sampled[i + 1] = tuple(st for var, st in self.state)
 
         samples_df = _return_samples(sampled)
-        if not include_latents:
+        if hasattr(self, 'latents') and not include_latents:
             samples_df.drop(self.latents, axis=1, inplace=True)
         return samples_df
 

@@ -766,3 +766,28 @@ class MarkovModel(UndirectedGraph):
             clone_graph.add_factors(*factors_copy)
 
         return clone_graph
+
+    @property
+    def parameters(self):
+        """Returns all the factors parameters as vector.
+
+        Returns:
+            NDArray
+        """
+        return np.concatenate([factor.values.flatten() for factor in self.factors])
+
+    @parameters.setter
+    def parameters(self, values) -> None:
+        """Set the factors parameters."""
+        sizes = [np.product(factor.cardinality) for factor in self.factors]
+        values_ = np.split(values, np.cumsum(sizes)[:-1])
+        for i, factor in enumerate(self.get_factors()):
+            factor.values = values_[i].reshape(factor.cardinality)
+
+    @property
+    def variables(self):
+        factor_nodes = set(
+            [phi for phi in self.nodes if isinstance(phi, DiscreteFactor)]
+        )
+        variables = set(self.nodes) - factor_nodes
+        return variables

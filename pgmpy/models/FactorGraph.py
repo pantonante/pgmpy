@@ -477,3 +477,20 @@ class FactorGraph(UndirectedGraph):
             copy.add_factors(*factors_copy)
 
         return copy
+
+    @property
+    def parameters(self):
+        """Returns all the factors parameters as vector.
+
+        Returns:
+            NDArray
+        """
+        return np.concatenate([factor.values.flatten() for factor in self.factors])
+
+    @parameters.setter
+    def parameters(self, values) -> None:
+        """Set the factors parameters."""
+        sizes = [np.product(factor.cardinality) for factor in self.factors]
+        values_ = np.split(values, np.cumsum(sizes)[:-1])
+        for i, factor in enumerate(self.get_factors()):
+            factor.values = values_[i].reshape(factor.cardinality)
