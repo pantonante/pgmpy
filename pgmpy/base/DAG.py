@@ -492,9 +492,6 @@ class DAG(nx.DiGraph):
         Two graphs G1 and G2 are said to be I-equivalent if they have same skeleton
         and have same set of immoralities.
 
-        Note: For same skeleton different names of nodes can work but for immoralities
-        names of nodes must be same
-
         Parameters
         ----------
         model : A DAG object, for which you want to check I-equivalence
@@ -517,13 +514,12 @@ class DAG(nx.DiGraph):
 
         """
         if not isinstance(model, DAG):
-            raise TypeError("model must be an instance of DAG")
-        skeleton = nx.algorithms.isomorphism.GraphMatcher(
-            self.to_undirected(), model.to_undirected()
-        )
-        if (
-            skeleton.is_isomorphic()
-            and self.get_immoralities() == model.get_immoralities()
+            raise TypeError(
+                f"Model must be an instance of DAG. Got type: {type(model)}"
+            )
+
+        if (self.to_undirected().edges() == model.to_undirected().edges()) and (
+            self.get_immoralities() == model.get_immoralities()
         ):
             return True
         return False
@@ -671,7 +667,7 @@ class DAG(nx.DiGraph):
         for child_node in children:
             blanket_nodes.extend(self.get_parents(child_node))
         blanket_nodes = set(blanket_nodes)
-        blanket_nodes.remove(node)
+        blanket_nodes.discard(node)
         return list(blanket_nodes)
 
     def active_trail_nodes(self, variables, observed=None, include_latents=False):
@@ -886,7 +882,12 @@ class DAG(nx.DiGraph):
         return self.subgraph(nodes=self._get_ancestors_of(nodes=nodes))
 
     def to_daft(
-        self, node_pos=None, latex=True, pgm_params={}, edge_params={}, node_params={}
+        self,
+        node_pos="circular",
+        latex=True,
+        pgm_params={},
+        edge_params={},
+        node_params={},
     ):
         """
         Returns a daft (https://docs.daft-pgm.org/en/latest/) object which can be rendered for
@@ -894,14 +895,14 @@ class DAG(nx.DiGraph):
 
         Parameters
         ----------
-        node_pos: str or dict (optional)
+        node_pos: str or dict (default: circular)
             If str: Must be one of the following: circular, kamada_kawai, planar, random, shell, sprint,
                 spectral, spiral. Please refer: https://networkx.org/documentation/stable//reference/drawing.html#module-networkx.drawing.layout for details on these layouts.
 
             If dict should be of the form {node: (x coordinate, y coordinate)} describing the x and y coordinate of each
             node.
 
-            If no argument is provided uses random layout.
+            If no argument is provided uses circular layout.
 
         latex: boolean
             Whether to use latex for rendering the node names.
@@ -944,9 +945,7 @@ class DAG(nx.DiGraph):
                 "Package daft required. Please visit: https://docs.daft-pgm.org/en/latest/ for installation instructions."
             )
 
-        if node_pos is None:
-            node_pos = nx.random_layout(self)
-        elif isinstance(node_pos, str):
+        if isinstance(node_pos, str):
             supported_layouts = {
                 "circular": nx.circular_layout,
                 "kamada_kawai": nx.kamada_kawai_layout,

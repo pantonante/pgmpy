@@ -1,13 +1,15 @@
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 import itertools
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+import networkx as nx
+from tqdm.auto import tqdm
 
 from pgmpy.factors import factor_product
-from pgmpy.inference import BayesianModelInference
-from pgmpy.models import BayesianModel, MarkovChain, MarkovModel
+from pgmpy.sampling import BayesianModelInference
+from pgmpy.models import BayesianNetwork, MarkovChain, MarkovNetwork
+from pgmpy.models import DynamicBayesianNetwork as DBN
 from pgmpy.utils.mathext import sample_discrete, sample_discrete_maps
 from pgmpy.sampling import _return_samples
 from pgmpy.global_vars import SHOW_PROGRESS
@@ -22,7 +24,7 @@ class BayesianModelSampling(BayesianModelInference):
 
     Parameters
     ----------
-    model: instance of BayesianModel
+    model: instance of BayesianNetwork
         model on which inference queries will be computed
     """
 
@@ -30,7 +32,12 @@ class BayesianModelSampling(BayesianModelInference):
         super(BayesianModelSampling, self).__init__(model)
 
     def forward_sample(
-        self, size=1, include_latents=False, seed=None, show_progress=True
+        self,
+        size=1,
+        include_latents=False,
+        seed=None,
+        show_progress=True,
+        partial_samples=None,
     ):
         """
         Generates sample(s) from joint distribution of the bayesian network.
@@ -49,6 +56,10 @@ class BayesianModelSampling(BayesianModelInference):
         show_progress: boolean
             Whether to show a progress bar of samples getting generated.
 
+        partial_samples: pandas.DataFrame
+            A pandas dataframe specifying samples on some of the variables in the model. If
+            specified, the sampling procedure uses these sample values, instead of generating them.
+
         Returns
         -------
         sampled: pandas.DataFrame
@@ -56,10 +67,10 @@ class BayesianModelSampling(BayesianModelInference):
 
         Examples
         --------
-        >>> from pgmpy.models.BayesianModel import BayesianModel
+        >>> from pgmpy.models import BayesianNetwork
         >>> from pgmpy.factors.discrete import TabularCPD
         >>> from pgmpy.sampling import BayesianModelSampling
-        >>> student = BayesianModel([('diff', 'grade'), ('intel', 'grade')])
+        >>> student = BayesianNetwork([('diff', 'grade'), ('intel', 'grade')])
         >>> cpd_d = TabularCPD('diff', 2, [[0.6], [0.4]])
         >>> cpd_i = TabularCPD('intel', 2, [[0.7], [0.3]])
         >>> cpd_g = TabularCPD('grade', 3, [[0.3, 0.05, 0.9, 0.5], [0.4, 0.25,
@@ -85,27 +96,31 @@ class BayesianModelSampling(BayesianModelInference):
             if show_progress and SHOW_PROGRESS:
                 pbar.set_description(f"Generating for node: {node}")
 
-            cpd = self.model.get_cpds(node)
-            states = range(self.cardinality[node])
-            evidence = cpd.variables[:0:-1]
-            if evidence:
-                evidence_values = np.vstack([sampled[i] for i in evidence])
-
-                state_to_index, index_to_weight = self.pre_compute_reduce_maps(
-                    variable=node
-                )
-                unique, inverse = np.unique(
-                    evidence_values.T, axis=0, return_inverse=True
-                )
-                weight_index = np.array([state_to_index[tuple(u)] for u in unique])[
-                    inverse
-                ]
-                sampled[node] = sample_discrete_maps(
-                    states, weight_index, index_to_weight, size
-                )
+            # If values specified in partial_samples, use them. Else generate the values.
+            if (partial_samples is not None) and (node in partial_samples.columns):
+                sampled[node] = partial_samples.loc[:, node].values
             else:
-                weights = cpd.values
-                sampled[node] = sample_discrete(states, weights, size)
+                cpd = self.model.get_cpds(node)
+                states = range(self.cardinality[node])
+                evidence = cpd.variables[:0:-1]
+                if evidence:
+                    evidence_values = np.vstack([sampled[i] for i in evidence])
+
+                    state_to_index, index_to_weight = self.pre_compute_reduce_maps(
+                        variable=node
+                    )
+                    unique, inverse = np.unique(
+                        evidence_values.T, axis=0, return_inverse=True
+                    )
+                    weight_index = np.array([state_to_index[tuple(u)] for u in unique])[
+                        inverse
+                    ]
+                    sampled[node] = sample_discrete_maps(
+                        states, weight_index, index_to_weight, size
+                    )
+                else:
+                    weights = cpd.values
+                    sampled[node] = sample_discrete(states, weights, size)
 
         samples_df = _return_samples(sampled, self.state_names_map)
         if not include_latents:
@@ -119,6 +134,7 @@ class BayesianModelSampling(BayesianModelInference):
         include_latents=False,
         seed=None,
         show_progress=True,
+        partial_samples=None,
     ):
         """
         Generates sample(s) from joint distribution of the bayesian network,
@@ -141,6 +157,10 @@ class BayesianModelSampling(BayesianModelInference):
         show_progress: boolean
             Whether to show a progress bar of samples getting generated.
 
+        partial_samples: pandas.DataFrame
+            A pandas dataframe specifying samples on some of the variables in the model. If
+            specified, the sampling procedure uses these sample values, instead of generating them.
+
         Returns
         -------
         sampled: pandas.DataFrame
@@ -148,11 +168,11 @@ class BayesianModelSampling(BayesianModelInference):
 
         Examples
         --------
-        >>> from pgmpy.models.BayesianModel import BayesianModel
+        >>> from pgmpy.models import BayesianNetwork
         >>> from pgmpy.factors.discrete import TabularCPD
         >>> from pgmpy.factors.discrete import State
         >>> from pgmpy.sampling import BayesianModelSampling
-        >>> student = BayesianModel([('diff', 'grade'), ('intel', 'grade')])
+        >>> student = BayesianNetwork([('diff', 'grade'), ('intel', 'grade')])
         >>> cpd_d = TabularCPD('diff', 2, [[0.6], [0.4]])
         >>> cpd_i = TabularCPD('intel', 2, [[0.7], [0.3]])
         >>> cpd_g = TabularCPD('grade', 3, [[0.3, 0.05, 0.9, 0.5], [0.4, 0.25,
@@ -175,7 +195,7 @@ class BayesianModelSampling(BayesianModelInference):
             return self.forward_sample(size=size, include_latents=include_latents)
 
         # Setup array to be returned
-        sampled = pd.DataFrame(columns=list(self.model.nodes()))
+        sampled = pd.DataFrame()
         prob = 1
         i = 0
 
@@ -187,8 +207,17 @@ class BayesianModelSampling(BayesianModelInference):
 
         while i < size:
             _size = int(((size - i) / prob) * 1.5)
+
+            # If partial_samples is specified, can only generate < partial_samples.shape[0] number of samples
+            # at a time. For simplicity, just generate the same size as partial_samples.shape[0].
+            if partial_samples is not None:
+                _size = partial_samples.shape[0]
+
             _sampled = self.forward_sample(
-                size=_size, include_latents=True, show_progress=False
+                size=_size,
+                include_latents=True,
+                show_progress=False,
+                partial_samples=partial_samples,
             )
 
             for var, state in evidence:
@@ -245,10 +274,10 @@ class BayesianModelSampling(BayesianModelInference):
         Examples
         --------
         >>> from pgmpy.factors.discrete import State
-        >>> from pgmpy.models.BayesianModel import BayesianModel
+        >>> from pgmpy.models import BayesianNetwork
         >>> from pgmpy.factors.discrete import TabularCPD
         >>> from pgmpy.sampling import BayesianModelSampling
-        >>> student = BayesianModel([('diff', 'grade'), ('intel', 'grade')])
+        >>> student = BayesianNetwork([('diff', 'grade'), ('intel', 'grade')])
         >>> cpd_d = TabularCPD('diff', 2, [[0.6], [0.4]])
         >>> cpd_i = TabularCPD('intel', 2, [[0.7], [0.3]])
         >>> cpd_g = TabularCPD('grade', 3, [[0.3, 0.05, 0.9, 0.5], [0.4, 0.25,
@@ -343,18 +372,18 @@ class GibbsSampling(MarkovChain):
 
     Parameters
     ----------
-    model: BayesianModel or MarkovModel
+    model: BayesianNetwork or MarkovNetwork
         Model from which variables are inherited and transition probabilities computed.
 
     Examples
     --------
-    Initialization from a BayesianModel object:
+    Initialization from a BayesianNetwork object:
 
     >>> from pgmpy.factors.discrete import TabularCPD
-    >>> from pgmpy.models import BayesianModel
+    >>> from pgmpy.models import BayesianNetwork
     >>> intel_cpd = TabularCPD('intel', 2, [[0.7], [0.3]])
     >>> sat_cpd = TabularCPD('sat', 2, [[0.95, 0.2], [0.05, 0.8]], evidence=['intel'], evidence_card=[2])
-    >>> student = BayesianModel()
+    >>> student = BayesianNetwork()
     >>> student.add_nodes_from(['intel', 'sat'])
     >>> student.add_edge('intel', 'sat')
     >>> student.add_cpds(intel_cpd, sat_cpd)
@@ -369,9 +398,9 @@ class GibbsSampling(MarkovChain):
 
     def __init__(self, model=None):
         super(GibbsSampling, self).__init__()
-        if isinstance(model, BayesianModel):
+        if isinstance(model, BayesianNetwork):
             self._get_kernel_from_bayesian_model(model)
-        elif isinstance(model, MarkovModel):
+        elif isinstance(model, MarkovNetwork):
             self._get_kernel_from_markov_model(model)
 
     def _get_kernel_from_bayesian_model(self, model):
@@ -382,7 +411,7 @@ class GibbsSampling(MarkovChain):
 
         Parameters
         ----------
-        model: BayesianModel
+        model: BayesianNetwork
             The model from which probabilities will be computed.
         """
         self.variables = np.array(model.nodes())
@@ -412,7 +441,7 @@ class GibbsSampling(MarkovChain):
 
         Parameters
         ----------
-        model: MarkovModel
+        model: MarkovNetwork
             The model from which probabilities will be computed.
         """
         self.variables = np.array(model.nodes())
@@ -474,8 +503,8 @@ class GibbsSampling(MarkovChain):
         --------
         >>> from pgmpy.factors.discrete import DiscreteFactor
         >>> from pgmpy.sampling import GibbsSampling
-        >>> from pgmpy.models import MarkovModel
-        >>> model = MarkovModel([('A', 'B'), ('C', 'B')])
+        >>> from pgmpy.models import MarkovNetwork
+        >>> model = MarkovNetwork([('A', 'B'), ('C', 'B')])
         >>> factor_ab = DiscreteFactor(['A', 'B'], [2, 2], [1, 2, 3, 4])
         >>> factor_cb = DiscreteFactor(['C', 'B'], [2, 2], [5, 6, 7, 8])
         >>> model.add_factors(factor_ab, factor_cb)
@@ -527,8 +556,8 @@ class GibbsSampling(MarkovChain):
         --------
         >>> from pgmpy.factors.discrete import DiscreteFactor
         >>> from pgmpy.sampling import GibbsSampling
-        >>> from pgmpy.models import MarkovModel
-        >>> model = MarkovModel([('A', 'B'), ('C', 'B')])
+        >>> from pgmpy.models import MarkovNetwork
+        >>> model = MarkovNetwork([('A', 'B'), ('C', 'B')])
         >>> factor_ab = DiscreteFactor(['A', 'B'], [2, 2], [1, 2, 3, 4])
         >>> factor_cb = DiscreteFactor(['C', 'B'], [2, 2], [5, 6, 7, 8])
         >>> model.add_factors(factor_ab, factor_cb)

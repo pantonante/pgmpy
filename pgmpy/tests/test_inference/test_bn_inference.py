@@ -1,15 +1,17 @@
 import unittest
 
 import numpy as np
-from pgmpy.models.BayesianModel import BayesianModel
-from pgmpy.inference import BayesianModelProbability
+import pandas as pd
+
+from pgmpy.models import BayesianNetwork
+from pgmpy.metrics import BayesianModelProbability
 from pgmpy.factors.discrete import TabularCPD
 
 
 class TestBnInference(unittest.TestCase):
     def setUp(self) -> None:
         # construct a tree graph structure
-        model = BayesianModel(
+        model = BayesianNetwork(
             [("A", "B"), ("A", "C"), ("B", "D"), ("B", "E"), ("C", "F")]
         )
 
@@ -86,19 +88,22 @@ class TestBnInference(unittest.TestCase):
         p = np.exp(logp)
         np.testing.assert_array_almost_equal(p, [p0, p1, p2])
 
-        data = np.array(
-            [
-                [1, 0, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 2],
-                [1, 0, 0, 1, 0, 1],
-                [0, 1, 2, 0, 1, 1],
-                [1, 1, 1, 0, 1, 0],
-                [1, 1, 2, 1, 1, 0],
-                [0, 1, 0, 0, 1, 0],
-                [0, 0, 2, 0, 0, 1],
-                [0, 1, 0, 0, 1, 2],
-                [1, 0, 1, 2, 0, 1],
-            ]
+        data = pd.DataFrame(
+            np.array(
+                [
+                    [1, 0, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 2],
+                    [1, 0, 0, 1, 0, 1],
+                    [0, 1, 2, 0, 1, 1],
+                    [1, 1, 1, 0, 1, 0],
+                    [1, 1, 2, 1, 1, 0],
+                    [0, 1, 0, 0, 1, 0],
+                    [0, 0, 2, 0, 0, 1],
+                    [0, 1, 0, 0, 1, 2],
+                    [1, 0, 1, 2, 0, 1],
+                ]
+            ),
+            columns=["A", "C", "F", "B", "E", "D"],
         )
         logp = self.inference.log_probability(data, ordering)
         p = np.exp(logp)

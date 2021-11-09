@@ -3,9 +3,10 @@ from itertools import chain, product
 
 import numpy as np
 import networkx as nx
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
-from pgmpy.models.BayesianModel import BayesianModel
+from pgmpy.models import BayesianNetwork
+from pgmpy.factors.discrete import DiscreteFactor
 from pgmpy.estimators.LinearModel import LinearEstimator
 from pgmpy.global_vars import SHOW_PROGRESS
 from pgmpy.utils.sets import _powerset, _variable_or_iterable_to_set
@@ -33,10 +34,10 @@ class CausalInference(object):
     Examples
     --------
     Create a small Bayesian Network.
-    >>> from pgmpy.models.BayesianModel import BayesianModel
-    >>> game = BayesianModel([('X', 'A'),
-    ...                       ('A', 'Y'),
-    ...                       ('A', 'B')])
+    >>> from pgmpy.models import BayesianNetwork
+    >>> game = BayesianNetwork([('X', 'A'),
+    ...                         ('A', 'Y'),
+    ...                         ('A', 'B')])
 
     Load the graph into the CausalInference object to make causal queries.
     >>> from pgmpy.inference.CausalInference import CausalInference
@@ -53,9 +54,9 @@ class CausalInference(object):
     """
 
     def __init__(self, model, set_nodes=None):
-        if not isinstance(model, BayesianModel):
+        if not isinstance(model, BayesianNetwork):
             raise NotImplementedError(
-                "Causal Inference is only implemented for BayesianModels at this time."
+                "Causal Inference is only implemented for BayesianNetworks at this time."
             )
         self.model = model
         self.set_nodes = _variable_or_iterable_to_set(set_nodes)
@@ -88,9 +89,9 @@ class CausalInference(object):
 
         Examples
         --------
-        >>> game1 = BayesianModel([('X', 'A'),
-        ...                        ('A', 'Y'),
-        ...                        ('A', 'B')])
+        >>> game1 = BayesianNetwork([('X', 'A'),
+        ...                          ('A', 'Y'),
+        ...                          ('A', 'B')])
         >>> inference = CausalInference(game1)
         >>> inference.is_valid_backdoor_adjustment_set("X", "Y")
         True
@@ -133,9 +134,9 @@ class CausalInference(object):
 
         Examples
         --------
-        >>> game1 = BayesianModel([('X', 'A'),
-        ...                        ('A', 'Y'),
-        ...                        ('A', 'B')])
+        >>> game1 = BayesianNetwork([('X', 'A'),
+        ...                          ('A', 'Y'),
+        ...                          ('A', 'B')])
         >>> inference = CausalInference(game1)
         >>> inference.get_all_backdoor_adjustment_sets("X", "Y")
         frozenset()
@@ -347,9 +348,9 @@ class CausalInference(object):
         Examples
         --------
         >>> import pandas as pd
-        >>> game1 = BayesianModel([('X', 'A'),
-        ...                        ('A', 'Y'),
-        ...                        ('A', 'B')])
+        >>> game1 = BayesianNetwork([('X', 'A'),
+        ...                          ('A', 'Y'),
+        ...                          ('A', 'B')])
         >>> data = pd.DataFrame(np.random.randint(2, size=(1000, 4)), columns=['X', 'A', 'B', 'Y'])
         >>> inference = CausalInference(model=game1)
         >>> inference.estimate_ate("X", "Y", data=data, estimator_type="linear")
@@ -399,13 +400,13 @@ class CausalInference(object):
 
         Examples
         --------
-        >>> from pgmpy.models import BayesianModel
+        >>> from pgmpy.models import BayesianNetwork
         >>> from pgmpy.inference import CausalInference
-        >>> model = BayesianModel([("x1", "y1"), ("x1", "z1"), ("z1", "z2"),
+        >>> model = BayesianNetwork([("x1", "y1"), ("x1", "z1"), ("z1", "z2"),
         ...                        ("z2", "x2"), ("y2", "z2")])
         >>> c_infer = CausalInference(model)
         >>> c_infer.get_proper_backdoor_graph(X=["x1", "x2"], Y=["y1", "y2"])
-        <pgmpy.models.BayesianModel.BayesianModel at 0x7fba501ad940>
+        <pgmpy.models.BayesianNetwork.BayesianNetwork at 0x7fba501ad940>
 
         References
         ----------
@@ -448,9 +449,9 @@ class CausalInference(object):
 
         Examples
         --------
-        >>> from pgmpy.models import BayesianModel
+        >>> from pgmpy.models import BayesianNetwork
         >>> from pgmpy.inference import CausalInference
-        >>> model = BayesianModel([("x1", "y1"), ("x1", "z1"), ("z1", "z2"),
+        >>> model = BayesianNetwork([("x1", "y1"), ("x1", "z1"), ("z1", "z2"),
         ...                        ("z2", "x2"), ("y2", "z2")])
         >>> c_infer = CausalInference(model)
         >>> c_infer.is_valid_adjustment_set(X=['x1', 'x2'], Y=['y1', 'y2'], adjustment_set=['z1', 'z2'])
@@ -590,7 +591,7 @@ class CausalInference(object):
                 f"inference_algo must be one of: 've', 'bp', or an instance of pgmpy.inference.Inference. Got: {inference_algo}"
             )
 
-        # Step 2: Check if adjustment set is provided, otherwise calcualte it.
+        # Step 2: Check if adjustment set is provided, otherwise try calculating it.
         if adjustment_set is None:
             do_vars = [var for var, state in do.items()]
             adjustment_set = set(
@@ -603,17 +604,56 @@ class CausalInference(object):
 
         infer = inference_algo(self.model)
 
-        # Step 3: If no do variable specified, do a normal probabilistic inference.
+        # Step 3.1: If no do variable specified, do a normal probabilistic inference.
         if do == {}:
             return infer.query(variables, evidence, show_progress=False)
+        # Step 3.2: If no adjustment is required, do a normal probabilistic
+        #           inference with do variables as the evidence.
+        elif len(adjustment_set) == 0:
+            evidence = {**evidence, **do}
+            return infer.query(variables, evidence, show_progress=False)
 
-        # Step 3: Compute \sum_{z} p(variables | do, z) p(z)
+        # Step 4: For other cases, compute \sum_{z} p(variables | do, z) p(z)
         values = []
-        p_z = infer.query(adjustment_set, evidence=evidence, show_progress=False)
-        adj_states = [
-            self.model.get_cpds(var).state_names[var] for var in adjustment_set
-        ]
 
+        # Step 4.1: Compute p_z and states of z to iterate over.
+        # For computing p_z, if evidence variables also in adjustment set,
+        # manually do reduce else inference will throw error.
+        evidence_adj_inter = {
+            var: state
+            for var, state in evidence.items()
+            if var in adjustment_set.intersection(evidence.keys())
+        }
+        if len(evidence_adj_inter) != 0:
+            p_z = infer.query(adjustment_set, show_progress=False).reduce(
+                [(key, value) for key, value in evidence_adj_inter.items()],
+                inplace=False,
+            )
+            # Since we are doing reduce over some of the variables, they are
+            # going to be removed from the factor but would be required to get
+            # values later. A hackish solution to reintroduce those variables in p_z
+
+            if set(p_z.variables) != adjustment_set:
+                p_z = DiscreteFactor(
+                    p_z.variables + list(evidence_adj_inter.keys()),
+                    list(p_z.cardinality) + [1] * len(evidence_adj_inter),
+                    p_z.values,
+                    state_names={
+                        **p_z.state_names,
+                        **{var: [state] for var, state in evidence_adj_inter.items()},
+                    },
+                )
+        else:
+            p_z = infer.query(adjustment_set, evidence=evidence, show_progress=False)
+
+        adj_states = []
+        for var in adjustment_set:
+            if var in evidence_adj_inter.keys():
+                adj_states.append([evidence_adj_inter[var]])
+            else:
+                adj_states.append(self.model.get_cpds(var).state_names[var])
+
+        # Step 4.2: Iterate over states of adjustment set and compute values.
         if show_progress and SHOW_PROGRESS:
             pbar = tqdm(total=np.prod([len(states) for states in adj_states]))
 

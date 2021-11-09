@@ -1,6 +1,7 @@
+import logging
+import warnings
 from itertools import product
 from collections import namedtuple
-from warnings import warn
 
 import numpy as np
 import pandas as pd
@@ -155,7 +156,9 @@ class DiscreteFactor(BaseFactor, StateNameMixin):
 
     def get_value(self, **kwargs):
         """
-        Returns the value of the given variable states.
+        Returns the value of the given variable states. Assumes that the arguments
+        specified are state names, and falls back to considering it as state no if
+        can't find the state name.
 
         Parameters
         ----------
@@ -183,11 +186,12 @@ class DiscreteFactor(BaseFactor, StateNameMixin):
         for var in self.variables:
             if var not in kwargs.keys():
                 raise ValueError(f"Variable: {var} not found in arguments")
-            elif isinstance(kwargs[var], str):
-                index.append(self.name_to_no[var][kwargs[var]])
             else:
-                warn(f"Using {var} state as number instead of name.")
-                index.append(kwargs[var])
+                try:
+                    index.append(self.name_to_no[var][kwargs[var]])
+                except KeyError:
+                    logging.info(f"Using {var} state as number instead of name.")
+                    index.append(kwargs[var])
         return self.values[tuple(index)]
 
     def set_value(self, value, **kwargs):
@@ -230,7 +234,7 @@ class DiscreteFactor(BaseFactor, StateNameMixin):
             elif isinstance(kwargs[var], str):
                 index.append(self.name_to_no[var][kwargs[var]])
             else:
-                warn(f"Using {var} state as number instead of name.")
+                logging.info(f"Using {var} state as number instead of name.")
                 index.append(kwargs[var])
 
         self.values[tuple(index)] = value
@@ -464,7 +468,7 @@ class DiscreteFactor(BaseFactor, StateNameMixin):
         if not inplace:
             return phi
 
-    def reduce(self, values, inplace=True):
+    def reduce(self, values, inplace=True, show_warnings=True):
         """
         Reduces the factor to the context of given variable values. The variables which
         are reduced would be removed from the factor.
@@ -477,6 +481,9 @@ class DiscreteFactor(BaseFactor, StateNameMixin):
         inplace: boolean
             If inplace=True it will modify the factor itself, else would return
             a new factor.
+
+        show_warnings: boolean
+            Whether to show warning when state name not found.
 
         Returns
         -------
@@ -518,9 +525,11 @@ class DiscreteFactor(BaseFactor, StateNameMixin):
                 (var, self.get_state_no(var, state_name)) for var, state_name in values
             ]
         except KeyError:
-            warn(
-                "Found unknown state name. Trying to switch to using all state names as state numbers"
-            )
+            if show_warnings:
+                warnings.warn(
+                    "Found unknown state name. Trying to switch to using all state names as state numbers",
+                    UserWarning,
+                )
 
         var_index_to_del = []
         slice_ = [slice(None)] * len(self.variables)
