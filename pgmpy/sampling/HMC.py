@@ -5,7 +5,7 @@
 from math import sqrt
 
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from pgmpy.utils import _check_1d_array_object, _check_length_equal
 from pgmpy.sampling import (
@@ -100,7 +100,7 @@ class HamiltonianMC(object):
 
         # acceptance_prob = P(position_bar, momentum_bar)/ P(position, momentum)
         potential_change = logp_bar - logp  # Negative change
-        kinetic_change = 0.5 * np.float(
+        kinetic_change = 0.5 * float(
             np.dot(momentum_bar.T, momentum_bar) - np.dot(momentum.T, momentum)
         )
 
